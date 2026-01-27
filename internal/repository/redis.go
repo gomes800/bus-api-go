@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/gomes800/bus-api-go/internal/model"
 	"github.com/gomes800/bus-api-go/internal/util"
@@ -22,6 +23,7 @@ func (r *RedisRepo) SaveBus(ctx context.Context, b model.BusPosition) error {
 
 	old, _ := r.C.HGet(ctx, key, "timestamp").Result()
 	if old == b.DataHora {
+		r.C.Expire(ctx, key, time.Minute*5)
 		return nil
 	}
 
@@ -38,6 +40,8 @@ func (r *RedisRepo) SaveBus(ctx context.Context, b model.BusPosition) error {
 		return err
 	}
 
+	r.C.Expire(ctx, key, time.Minute*5)
+
 	lon := util.Convert(b.Longitude)
 	lat := util.Convert(b.Latitude)
 
@@ -51,8 +55,11 @@ func (r *RedisRepo) SaveBus(ctx context.Context, b model.BusPosition) error {
 	}
 
 	_, err = r.C.SAdd(ctx, "line:"+b.Linha, b.Ordem).Result()
+	if err != nil {
+		return err
+	}
 
-	return err
+	return nil
 }
 
 func (r *RedisRepo) GetBus(ctx context.Context, ordem string) (*model.BusPosition, error) {

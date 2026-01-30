@@ -119,3 +119,88 @@ func (r *RedisRepo) GetLine(ctx context.Context, line string) ([]model.BusPositi
 	log.Printf("[Redis] GetLine %s -> %d buses", line, len(result))
 	return result, nil
 }
+
+func (r *RedisRepo) CleanupLine(ctx context.Context, line string) error {
+	lineKey := "line:" + line
+
+	ids, err := r.C.SMembers(ctx, lineKey).Result()
+	if err != nil {
+		return err
+	}
+
+	pipe := r.C.Pipeline()
+	existsCmds := make([]*redis.IntCmd, 0, len(ids))
+	for _, id := range ids {
+		existsCmds = append(existsCmds, pipe.Exists(ctx, "bus:"+id))
+	}
+	_, err = pipe.Exec(ctx)
+	if err != nil {
+		return err
+	}
+
+	dead := make([]string, 0)
+	for i, id := range ids {
+		if existsCmds[i].Val() == 0 {
+			dead = append(dead, id)
+		}
+	}
+
+	if len(dead) > 0 {
+		if err := r.C.SRem(ctx, lineKey, dead).Err(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *RedisRepo) CleanupGeo(ctx context.Context, max int) error {
+	var cursor uint64
+	checked := 0
+
+	for checked < max {
+		items, nextCursor, err := r.C.ZScan(ctx, "buses", cursor, "*", 500).Result()
+		if err != nil {
+			return err
+		}
+
+		members := make([]string, 0, len(items)/2)
+		for i := 0; i < len(items); i += 2 {
+			members = append(members, items[i])
+		}
+
+		if len(members) > 0 {
+			pipe := r.C.Pipeline()
+			existsCmds := make([]*redis.IntCmd, 0, len(members))
+			for _, m := range members {
+				existsCmds = append(existsCmds, pipe.Exists(ctx, "bus:"+m))
+			}
+			if _, err := pipe.Exec(ctx); err != nil {
+				return err
+			}
+
+			dead := make([]string, 0)
+			for i, m := range members {
+				if existsCmds[i].Val() == 0 {
+					dead = append(dead, m)
+				}
+			}
+
+			if len(dead) > 0 {
+				if err := r.C.ZRem(ctx, "buses", dead).Err(); err != nil {
+					return err
+				}
+				log.Printf("[Cleanup] Geo removed %d dead buses", len(dead))
+			}
+
+			checked += len(members)
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return nil
+}

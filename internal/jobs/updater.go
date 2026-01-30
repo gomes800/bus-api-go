@@ -9,12 +9,14 @@ import (
 
 func StartUpdaterJob(s *service.Service) {
 	go func() {
-		ticker := time.NewTicker(25 * time.Second)
-		for range ticker.C {
+		for {
 			log.Println("[Updater] tick")
+
 			if err := s.UpdateData(); err != nil {
 				log.Println("[Updater] error:", err)
 			}
+
+			time.Sleep(30 * time.Second)
 		}
 	}()
 }

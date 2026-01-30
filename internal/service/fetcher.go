@@ -2,6 +2,8 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -28,6 +30,11 @@ func (s *Service) FetchData() ([]model.BusPosition, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("upstream status=%d body=%s", resp.StatusCode, string(body))
+	}
 
 	var buses []model.BusPosition
 	if err := json.NewDecoder(resp.Body).Decode(&buses); err != nil {
